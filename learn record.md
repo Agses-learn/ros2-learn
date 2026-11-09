@@ -421,3 +421,11 @@ ROS中还有一种特殊类型：Header，标头包含时间戳和ROS2中常用�
 ## 2.4 动作通信
 
 ## 2.5 参数服务
+
+# 3. 常用命令
+source opt/ros/jazzy/setup.bash                
+source [工作空间下]/install/setup.bash         
+colcon list                                   查看所有功能包
+ros2 pkg executables [功能包]                  查看某个功能包下的可执行文件（执行入口）
+ros2 pkg list | grep [特定名字]                查找某个关键词的相关功能包  注意：这里列出来的不是某个工作空间下存在的功能包，而是当前环境下所有的功能包
+ros2 pkg prefix [功能包]                       查看功能包的安装位置
