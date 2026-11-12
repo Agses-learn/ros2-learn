@@ -423,9 +423,155 @@ ROS中还有一种特殊类型：Header，标头包含时间戳和ROS2中常用�
 ## 2.5 参数服务
 
 # 3. 常用命令
-source opt/ros/jazzy/setup.bash                
-source [工作空间下]/install/setup.bash         
+source opt/ros/jazzy/setup.bash               加载ros2系统环境
+source [工作空间下]/install/setup.bash         加载工作空间环境
 colcon list                                   查看所有功能包
 ros2 pkg executables [功能包]                  查看某个功能包下的可执行文件（执行入口）
 ros2 pkg list | grep [特定名字]                查找某个关键词的相关功能包  注意：这里列出来的不是某个工作空间下存在的功能包，而是当前环境下所有的功能包
 ros2 pkg prefix [功能包]                       查看功能包的安装位置
+ros2 node list                                查看运行中的节点
+--symlink-install
+对于非编译型文件或脚本（如 Python 脚本、Launch 文件、URDF 模型、YAML 配置文件等），colcon 不会去复制它们，而是在 install/ 目录下创建一个指向 src/ 源码文件的软链接。如果加了该参数：因为 install/ 目录下的文件只是指向 src/ 的快捷方式，直接修改 src/ 中的 Python 代码或 Launch 文件并保存，重新运行节点就能直接生效，完全不需要重新编译
+
+# 4. 常用函数
+## 4.1 订阅 create_subscription
+create_subscription(
+    Twist,                  # 消息类型
+    '/cmd_vel',             # Topic 名称
+    self.cmd_vel_callback,  # 回调函数
+    10                      # QoS 深度
+)
+## 4.2 发布 create_publisher
+create_publisher(
+    Odometry,               #消息类型
+    '/odom/unfiltered',     #Topic 名称
+    10                      #QoS 深度
+)
+## 4.3 声明启动参数 DeclareLaunchArgument
+DeclareLaunchArgument(      #声明一个可以在运行时配置的启动参数
+    name,                   #必填，参数名（字符串格式 ' '）
+    default_value,          #用户未在终端指定该参数时，系统采用的默认值
+    description,            #该参数的文字说明
+    choices                 #一个列表，限制该参数只能从指定的几个选项中选择
+)
+## 4.4 包含子launch IncludeLaunchDescription
+用来包含其他launch文件，类似于include
+示例：
+IncludeLaunchDescription(PythonLaunchDescriptionSource(PathJoinSubstitution([
+            FindPackageShare('curiousrobot_description'), 'launch', 'description.launch.py'])),
+            launch_arguments={
+                'use_sim_time': LaunchConfiguration('use_sim_time'),
+                'publish_joints': LaunchConfiguration('preview_joints'),
+                'rviz': LaunchConfiguration('rviz'),
+            }.items())
+其中，
+PythonLaunchDescriptionSource：告诉系统被包含的目标文件是一个 Python 写的 Launch 文件
+
+PathJoinSubstitution：把不同的路径部分（如功能包路径、文件夹名、文件名）组合成一个完整的、跨平台的绝对文件路径
+
+FindPackageShare：通过包名查找路径
+
+launch_arguments：子 Launch 文件通常也会用主launch中的 DeclareLaunchArgument 声明参数。通过主 Launch 中的 launch_arguments={...}.items()，可以实现自上而下的参数透传
+
+LaunchConfiguration：引用和获取DeclareLaunchArgument声明参数的值
+
+# 5. 相关概念
+## 5.1 QoS（Quality of Service）
+
+一种用于配置节点之间通信行为的机制
+
+ROS 2 的 QoS 主要由以下几种关键策略（Policies）组合而成：
+1. Reliability（可靠性）
+RELIABLE（可靠传输）：类似于 TCP。底层会通过确认和重传机制确保每一条消息都送达。如果丢包，会尝试重新发送。
+
+BEST_EFFORT（尽力而为）：类似于 UDP。发送方发完即走，不确认对方是否收到，丢包也不重传。适用于高频、可容忍少量丢包的数据。
+
+2. Durability（持久性）
+VOLATILE（易失）：不保存历史消息。新订阅者只能接收到它连接之后发布的新消息。
+
+TRANSIENT_LOCAL（本地暂存）：发布者（Publisher）会把最近发布的消息在本地缓存。当新的订阅者晚加入时，发布者会把历史缓存消息发送给它（类似于 ROS 1 中的 latch=True）。
+
+3. History（历史记录）
+KEEP_LAST（保留最后几条）：只保留最近的若干条消息，数量由 Depth（深度） 参数决定。
+
+KEEP_ALL（保留所有）：保留队列允许范围内的所有消息（直到资源耗尽）。
+
+4. Depth（队列深度）
+与 KEEP_LAST 配合使用。例如设置 History = KEEP_LAST 且 Depth = 10，意味着系统最多在队列中缓存最新的 10 条消息。如果消息产生速度大于消费速度，旧的消息会被覆盖。
+
+5. Deadline（截止时间）
+规定了两条连续消息发布之间的最大允许时间间隔。如果发布者在规定时间内没有发布新消息，或者订阅者在规定时间内没有收到消息，系统会触发超时回调。
+
+6. Lifespan（生命周期）
+规定了消息的“保质期”。如果消息在队列中停留的时间超过了设定的生命周期，且未被消费，它就会自动过期并被丢弃。
+
+7. Liveliness（活跃度）
+用于检测发布者是否仍然“存活”。如果发布者崩溃或网络中断，系统可以通过心跳机制及时通知订阅者。
+
+在 ROS 2 中，发布者和订阅者的 QoS 设置必须兼容，否则它们无法建立通信。QoS 的存在，就是让“大而密但不重要的传感器数据”走轻量通道，让“小而精且致命的控制指令”走钢铁长城。
+
+## 5.2 EKF
+
+融合多传感器数据，从充满噪声的多个传感器数据（轮式编码器、IMU、GPS/视觉里程计/激光雷达）中，实时推算出系统最真实、最可靠的内部状态（如位置、速度、姿态）
+作用一：数据融合
+作用二：处理非线性系统
+作用三：量化并压制不确定性
+EKF 的数学本质是一个递归的最小均方误差估计器，它通过两个交替的步骤来工作：
+预测步（Predict）：基于系统的物理运动模型（如运动学方程）和上一时刻的状态，预测当前时刻的状态，并推算误差的不确定性。
+更新步（Update）：当新的传感器测量值到来时，EKF 会对比“预测值”和“测量值”，根据各自的噪声水平（协方差矩阵）进行加权平均——谁更靠谱，就给谁更高的权重，从而修正预测误差，输出最优估计。
+
+为什么使用 EKF 融合 IMU来发布odom？
+由于轮式里程计存在测量噪声、模型误差及累计漂移，单独依赖其数据难以获得长期可靠的运动状态估计。因此，可以使用 EKF 融合轮式里程计与 IMU 测量，结合运动模型及测量协方差估计机器人的位置、速度和姿态，提高局部状态估计的鲁棒性与连续性。
+
+## 5.3 robot_localization
+robot_localization 是一个非常成熟、标准的状态估计（State Estimation）功能包集。它专门用来解决机器人在三维或二维空间中的定位问题。它的核心任务是：接收来自各种传感器的原始数据，通过滤波算法融合它们，最终输出一个连续、高精度的机器人全局或局部位姿（Pose）和速度（Twist）。EKF（扩展卡尔曼滤波）和UKF（无迹卡尔曼滤波）就是它提供的两个节点
+
+输入：Odometry、IMU、Pose
+输出：融合后的Odometry、TF广播
+
+robot_localization 的状态向量（15个）按以下顺序排列：
+位置(x, y, z)、位姿(roll, pitch, yaw)、线速度(vx, vy, vz)、角速度(wx, wy, wz)、线性加速度(ax, ay, az)
+
+## 6. Something
+## 6.1 参数覆盖机制
+比如说一个launch文件中对某些parameters进行了覆盖，或者有yaml文件，那么在实际启动这个节点的时候__init__会采用这个覆盖的值，并且替换cfg中的值。流程是：declare_parameter()（声明ros参数，即覆盖了的值） -> get_parameter()读取到覆盖值
+Launch 中后传入的参数字典 > YAML 配置 > Python 默认值（py中的默认值defaults）
+## 6.2 话题重映射 Remapping
+remappings=[
+    ('odometry/filtered', '/odom')
+]
+以上的两个话题，左边的开头没有/，右边有/
+
+odometry/filtered      #相对名称，会结合节点命名空间解析
+/odom                  #绝对名称，指向根命名空间下的 /odom
+
+例如，一个节点位于 /robot1 命名空间中：
+odometry/filtered通常会解析为/robot1/odometry/filtered
+而/odom仍然是/odom
+假设你有两台机器人robot1、robot2，它们都运行相同的 EKF 程序，你希望分别发布/robot1/odom、/robot2/odom，那么就需要使用：
+
+remappings=[
+    ('odometry/filtered', 'odom')
+]
+## 6.3 name和namespace
+Node(
+    package='robot_localization',
+    executable='ekf_node',
+    name='ekf_filter_node',
+    namespace='robot1',
+    remappings=[
+        ('odometry/filtered', 'odom')
+    ]
+)
+name            指定ros2节点名称
+namespace       指定节点所在的命名空间
+executable      指定启动哪个可执行程序
+
+最终节点的完整名称为：/robot1/ekf_filter_node
+它的重映射输出 Topic 为：/robot1/odom
+## 6.4 二维运动学模型
+速度：
+dx/dt = vx · cos(yaw) - vy · sin(yaw)
+dy/dt = vx · sin(yaw) + vy · cos(yaw)
+位置：
+对速度进行0-t积分
