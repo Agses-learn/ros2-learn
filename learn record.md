@@ -575,3 +575,19 @@ dx/dt = vx · cos(yaw) - vy · sin(yaw)
 dy/dt = vx · sin(yaw) + vy · cos(yaw)
 位置：
 对速度进行0-t积分
+
+## 6.5 urdf
+<link name="base_link"/>
+<link name="left_wheel_link"/>
+
+<joint name="left_wheel_joint" type="continuous">
+  <parent link="base_link"/>
+  <child link="left_wheel_link"/>
+  <origin xyz="0 0.18 -0.08" rpy="0 0 0"/>
+  <axis xyz="0 1 0"/>
+</joint>
+type="continuous"	     可以绕指定轴连续旋转，没有 URDF 定义的角度上下限
+parent	                 父刚体是 base_link
+child	                 子刚体是 left_wheel_link
+origin	                 车轮关节相对于底盘的位置
+axis	                 关节的旋转轴方向
