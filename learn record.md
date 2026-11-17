@@ -425,11 +425,41 @@ ROS中还有一种特殊类型：Header，标头包含时间戳和ROS2中常用�
 # 3. 常用命令
 source opt/ros/jazzy/setup.bash               加载ros2系统环境
 source [工作空间下]/install/setup.bash         加载工作空间环境
-colcon list                                   查看所有功能包
+ros2 node list                                查看运行中的节点
+
+## 3.1 ros2 param
+ros2 param list /节点名                        查看指定节点的所有参数
+ros2 param get /节点名 参数名                   查看某个参数的当前值
+ros2 param set /节点名 参数名 值                修改运行中节点的参数值
+ros2 param dump /节点名                        以 YAML 格式输出节点的全部参数
+注意：set 只修改运行中节点的参数；若节点只在启动时读取参数，修改后不会自动改变其工作行为。
+
+## 3.2 ros2 topic
+ros2 topic list                               查看当前所有话题
+ros2 topic list -t                            查看话题及其消息类型
+ros2 topic type [话题名]                       查看 [话题名] 的消息类型
+ros2 topic info [话题名]                       查看 [话题名] 的消息类型、发布者数量和订阅者数量
+ros2 topic info [话题名] -v                    查看发布者、订阅者及其 QoS 详细信息
+ros2 topic echo [话题名]                       持续打印 [话题名] 收到的消息，按 Ctrl+C 退出
+ros2 topic echo [话题名] --once                只接收并打印一条消息
+ros2 topic hz [话题名]                         统计 [话题名] 的实际接收频率（Hz）
+ros2 topic bw [话题名]                         统计 [话题名] 的接收带宽
+ros2 topic pub --once /test std_msgs/msg/String "{data: 'hello'}"  向 /test 发布一条 String 消息
+ros2 topic pub -r 10 /test std_msgs/msg/String "{data: 'hello'}"  以 10 Hz 持续发布消息，按 Ctrl+C 退出
+ros2 interface show sensor_msgs/msg/LaserScan 查看 LaserScan 消息有哪些字段
+
+## 3.3 ros2 pkg
 ros2 pkg executables [功能包]                  查看某个功能包下的可执行文件（执行入口）
 ros2 pkg list | grep [特定名字]                查找某个关键词的相关功能包  注意：这里列出来的不是某个工作空间下存在的功能包，而是当前环境下所有的功能包
 ros2 pkg prefix [功能包]                       查看功能包的安装位置
-ros2 node list                                查看运行中的节点
+ros2 pkg create [功能包]                       创建功能包
+
+## 3.4 colcon
+colcon list                                   查看所有功能包
+colcon build --packages-select [功能包]        只构建指定功能包
+colcon build --packages-up-to [功能包]         构建指定功能包及其递归依赖
+
+## other
 --symlink-install
 对于非编译型文件或脚本（如 Python 脚本、Launch 文件、URDF 模型、YAML 配置文件等），colcon 不会去复制它们，而是在 install/ 目录下创建一个指向 src/ 源码文件的软链接。如果加了该参数：因为 install/ 目录下的文件只是指向 src/ 的快捷方式，直接修改 src/ 中的 Python 代码或 Launch 文件并保存，重新运行节点就能直接生效，完全不需要重新编译
 
@@ -441,12 +471,14 @@ create_subscription(
     self.cmd_vel_callback,  # 回调函数
     10                      # QoS 深度
 )
+
 ## 4.2 发布 create_publisher
 create_publisher(
     Odometry,               #消息类型
     '/odom/unfiltered',     #Topic 名称
     10                      #QoS 深度
 )
+
 ## 4.3 声明启动参数 DeclareLaunchArgument
 DeclareLaunchArgument(      #声明一个可以在运行时配置的启动参数
     name,                   #必填，参数名（字符串格式 ' '）
@@ -454,6 +486,7 @@ DeclareLaunchArgument(      #声明一个可以在运行时配置的启动参数
     description,            #该参数的文字说明
     choices                 #一个列表，限制该参数只能从指定的几个选项中选择
 )
+
 ## 4.4 包含子launch IncludeLaunchDescription
 用来包含其他launch文件，类似于include
 示例：
@@ -475,28 +508,35 @@ launch_arguments：子 Launch 文件通常也会用主launch中的 DeclareLaunch
 
 LaunchConfiguration：引用和获取DeclareLaunchArgument声明参数的值
 
+## 4.5 服务通信 create_service
+self.create_service(
+    Trigger,                  #服务类型，Trigger的request为空，response包含success和message
+    'reset_odometry',         #服务名，字符串格式
+    self.reset_callback       #回调函数
+)
+
 # 5. 相关概念
 ## 5.1 QoS（Quality of Service）
 
 一种用于配置节点之间通信行为的机制
 
 ROS 2 的 QoS 主要由以下几种关键策略（Policies）组合而成：
-1. Reliability（可靠性）
+1. Reliability（可靠性）-----核心参数
 RELIABLE（可靠传输）：类似于 TCP。底层会通过确认和重传机制确保每一条消息都送达。如果丢包，会尝试重新发送。
 
 BEST_EFFORT（尽力而为）：类似于 UDP。发送方发完即走，不确认对方是否收到，丢包也不重传。适用于高频、可容忍少量丢包的数据。
 
-2. Durability（持久性）
-VOLATILE（易失）：不保存历史消息。新订阅者只能接收到它连接之后发布的新消息。
+2. Durability（持久性）-----核心参数
+VOLATILE（易失）：不保存历史消息。新订阅者只能接收到它连接之后发布的新消息。常见用途：/scan、/cmd_vel
 
-TRANSIENT_LOCAL（本地暂存）：发布者（Publisher）会把最近发布的消息在本地缓存。当新的订阅者晚加入时，发布者会把历史缓存消息发送给它（类似于 ROS 1 中的 latch=True）。
+TRANSIENT_LOCAL（本地暂存）：发布者（Publisher）会把最近发布的消息在本地缓存。当新的订阅者晚加入时，发布者会把历史缓存消息发送给它（类似于 ROS 1 中的 latch=True）。常见用途：静态地图、某些配置或状态信息
 
-3. History（历史记录）
+3. History（历史记录）-----核心参数
 KEEP_LAST（保留最后几条）：只保留最近的若干条消息，数量由 Depth（深度） 参数决定。
 
 KEEP_ALL（保留所有）：保留队列允许范围内的所有消息（直到资源耗尽）。
 
-4. Depth（队列深度）
+4. Depth（队列深度）-----核心参数
 与 KEEP_LAST 配合使用。例如设置 History = KEEP_LAST 且 Depth = 10，意味着系统最多在队列中缓存最新的 10 条消息。如果消息产生速度大于消费速度，旧的消息会被覆盖。
 
 5. Deadline（截止时间）
@@ -509,6 +549,14 @@ KEEP_ALL（保留所有）：保留队列允许范围内的所有消息（直到
 用于检测发布者是否仍然“存活”。如果发布者崩溃或网络中断，系统可以通过心跳机制及时通知订阅者。
 
 在 ROS 2 中，发布者和订阅者的 QoS 设置必须兼容，否则它们无法建立通信。QoS 的存在，就是让“大而密但不重要的传感器数据”走轻量通道，让“小而精且致命的控制指令”走钢铁长城。
+
+一个常见的传感器QoS配置：
+qos = QoSProfile(
+    reliability=ReliabilityPolicy.BEST_EFFORT,
+    durability=DurabilityPolicy.VOLATILE,
+    history=HistoryPolicy.KEEP_LAST,
+    depth=5
+)
 
 ## 5.2 EKF
 
@@ -532,11 +580,164 @@ robot_localization 是一个非常成熟、标准的状态估计（State Estimat
 robot_localization 的状态向量（15个）按以下顺序排列：
 位置(x, y, z)、位姿(roll, pitch, yaw)、线速度(vx, vy, vz)、角速度(wx, wy, wz)、线性加速度(ax, ay, az)
 
-## 6. Something
-## 6.1 参数覆盖机制
+## 5.4 调度器 Executor
+可以把 Executor 理解成 ROS 2 节点的回调调度器
+1. Executor包含：SingleThreadedExecutor 和 MultiThreadedExecutor，不是说换成multi就可以实现多线程了，还要考虑两个任务是否在同一个Callback Group，在的话就无法实现多线程
+2. ROS 2 中常见的 Callback Group 有两种：
+MutuallyExclusive（互斥回调组）：同一个组内的回调不能同时执行，即使 Executor 有多个线程。
+Reentrant（可重入回调组）：允许同一个组内的不同回调并发执行，也可能允许同一个回调的多个实例重叠执行，因此需要保证线程安全。
+
+Executor 决定有多少线程可以调度回调，Callback Group 决定哪些回调允许并发执行。
+
+## 5.5 CMakeLists.txt
+作用：定义源代码如何编译、链接和安装
+主要格式：
+1. 查找依赖
+find_package(ament_cmake REQUIRED)                   查找构建所需的依赖包
+find_package(rclcpp REQUIRED)
+find_package(std_msgs REQUIRED)
+
+2. 定义可执行文件
+add_executable(bridge_node src/bridge_node.cpp)      指定哪些源文件编译成哪个可执行程序
+
+3. 为可执行文件配置 ROS 2 依赖
+ament_target_dependencies(bridge_node                为目标配置 ROS 2 依赖
+  rclcpp
+  std_msgs
+)
+
+4. 安装可执行文件
+install(TARGETS                                      指定编译产物安装到哪里
+    bridge_node
+    DESTINATION lib/${PROJECT_NAME}
+)
+
+ament_package()                                      完成 ROS 2 ament 包的配置
+
+其他函数：
+target_include_directories(bridge_node               配置头文件搜索路径
+    PRIVATE
+    ${SERIAL_INCLUDE_DIRS}
+)
+
+target_link_libraries(bridge_node                    配置链接库
+    PRIVATE
+    serial_library
+)
+
+add_library(command_gate                             创建库目标
+    src/command_gate.cpp
+)
+
+问题：假如说我在 功能包A 中创建了一个新的command库，我在另一个 功能包B 中想要用这个库，即跨功能包复用库，该怎么做？
+首先，在功能包A的CMakeLists中：
+1. 创建库：
+add_library(command_gate SHARED
+  src/command_gate.cpp
+)
+2. 配置头文件路径
+target_include_directories(command_gate PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
+3. 安装库
+install(TARGETS command_gate                       将编译生成的库安装到工作空间
+  EXPORT export_command_gate
+  LIBRARY DESTINATION lib
+  ARCHIVE DESTINATION lib
+  RUNTIME DESTINATION bin
+)
+4. 安装头文件
+install(DIRECTORY include/                         安装头文件，让其他包能够使用。
+  DESTINATION include
+)
+5. 导出库的构建信息
+ament_export_targets(export_command_gate HAS_LIBRARY_TARGET)     向其他 CMake 功能包导出库目标及相关构建信息。
+
+其次，在功能包B的package.xml中：
+<depend>[功能包A]</depend>                 声明功能包A的依赖
+其次，在功能包B的CMakeLists中：
+
+1. 查找功能包A
+find_package([功能包] REQUIRED)
+2. 为可执行文件配置 ROS 2 依赖
+ament_target_dependencies(test_node
+  stm32_base_bridge
+)
+
+## 5.6 package.xml
+作用：声明功能包级的依赖，CMakeLists.txt是配置具体编译目标，这两者需要配合
+
+
+# 6. Something
+## 6.1 项目介绍
+### 一、项目背景与整体目标
+
+CuriousRobot 是一个基于 ROS 2 Jazzy 和 STM32 的四轮差速式移动机器人项目。项目采用上下位机分层架构：上位机运行 Ubuntu 和 ROS 2，负责运动指令交互、数据通信、状态估计以及后续的导航功能；下位机采用 STM32，负责接收运动控制指令、驱动底盘，并采集传感器数据。项目的整体目标是建立一套从上层运动控制到底盘执行、再到传感器反馈和机器人状态估计的完整软件链路，为后续接入激光雷达、SLAM 和 Nav2 自主导航提供基础。
+
+### 二、ROS 2 软件架构与功能包职责
+
+CuriousRobot 主要涉及以下功能包：
+**1. stm32_base_bridge**
+负责 ROS 2 与 STM32 之间的通信，它订阅 `/cmd_vel` 运动控制指令，将速度转换成串口协议数据帧发送给 STM32；同时接收下位机上传的遥测数据，解析后发布里程计和 IMU 消息。
+
+**2. stm32_robot_bringup**
+负责系统启动和配置管理，通过 ROS 2 Launch 文件组织相关节点，并将 YAML 配置参数传入节点。
+
+**3. curiousrobot_description**
+负责描述机器人的机械结构，包括底盘、车轮、传感器等部件的 link、joint 和几何模型，为 robot_state_publisher、TF 和 RViz 可视化提供机器人描述。
+
+**4. stm32_robot_navigation**
+用于组织机器人状态估计和导航相关配置，包括 EKF 等模块，并为后续导航功能提供集成入口。
+
+**5. ldlidar**
+用于激光雷达的数据接入，为后续环境感知、建图和导航提供传感器数据。
+
+
+### 三、运动控制指令链路
+
+项目通过 `/cmd_vel` 接收上层运动指令，消息类型为 `geometry_msgs/msg/Twist`，主要使用：
+- `linear.x`：机器人前进或后退的线速度。
+- `angular.z`：机器人绕竖直轴旋转的角速度。
+
+Bridge 收到指令后，并不会立即发送到 STM32。
+首先，`on_command()` 回调接收消息，调用 `CommandGate` 对指令进行合法性检查、速度限幅和状态保存。随后，定时执行的 `poll()` 根据配置的发送周期，从 CommandGate 获取当前允许输出的速度，并通过 `send()` 调用 `encode_command()` 完成协议编码，最终使用串口发送到 STM32。STM32 接收并解析指令后，按照底盘控制逻辑驱动电机。
+
+因此，控制链路可以概括为：
+**上层控制节点 → /cmd_vel → Bridge → CommandGate → 串口协议 → STM32 → 电机与底盘。**
+
+### 四、STM32 遥测反馈链路
+
+机器人运动过程中，下位机采集底盘状态和 IMU 数据，通过串口协议返回给上位机。Bridge 的 `poll()` 负责串口轮询和数据读取，`TelemetryParser.feed()` 对收到的数据进行帧解析，处理拆包、粘包以及异常数据等情况。
+解析成功后，`publish_sample()` 根据遥测帧中的有效标志位决定发布哪些 ROS 2 消息：
+- 当 `ODOM_VALID` 有效时，发布 `/odom/unfiltered`，消息类型为 `nav_msgs/msg/Odometry`。
+- 当 `IMU_VALID` 有效时，发布 `/imu/data`，消息类型为 `sensor_msgs/msg/Imu`。
+
+反馈链路可以概括为：
+**编码器与 IMU → STM32 → 串口遥测 → Bridge → Odometry/IMU Topic。**
+
+### 五、EKF 状态估计与 TF 坐标变换
+
+项目使用 robot_localization 中的 EKF 对轮式里程计和 IMU 数据进行状态估计。EKF 主要使用轮式里程计中的前进速度、横向速度和偏航角速度，以及 IMU 中配置启用的z轴角速度。EKF 根据机器人运动模型和传感器观测估计位姿，并输出融合后的 `/odom` 消息，以及 `odom → base_footprint` 动态坐标变换。
+
+项目中的主要坐标关系为：
+**map → odom → base_footprint → base_link → 传感器及车轮坐标系。**
+
+其中，`odom → base_footprint` 用于表示机器人相对于里程计坐标系的运动；`base_link` 到传感器的固定变换可以由 robot_state_publisher 根据 URDF 发布。
+
+### 六、底盘通信与运动安全机制
+
+为了避免串口异常、控制指令失效等问题导致机器人持续运动，Bridge 实现了多项安全机制。
+1. 对 `/cmd_vel` 中的速度值进行有限数值检查、合法性检查和限幅。
+2. Bridge 设置了指令超时机制。如果上层长时间没有发送有效控制指令，CommandGate 会输出零速度。
+3. Bridge 还会检查串口连接状态、遥测数据是否超时以及电机故障标志。如果底盘状态不满足安全条件，就不应继续输出非零运动指令。
+4. 在串口协议方面，项目使用帧头、消息类型、长度、序列号和 CRC 校验等机制，帮助识别有效数据帧和异常数据。
+
+## 6.2 参数覆盖机制
 比如说一个launch文件中对某些parameters进行了覆盖，或者有yaml文件，那么在实际启动这个节点的时候__init__会采用这个覆盖的值，并且替换cfg中的值。流程是：declare_parameter()（声明ros参数，即覆盖了的值） -> get_parameter()读取到覆盖值
 Launch 中后传入的参数字典 > YAML 配置 > Python 默认值（py中的默认值defaults）
-## 6.2 话题重映射 Remapping
+
+## 6.3 话题重映射 Remapping
 remappings=[
     ('odometry/filtered', '/odom')
 ]
@@ -553,7 +754,8 @@ odometry/filtered通常会解析为/robot1/odometry/filtered
 remappings=[
     ('odometry/filtered', 'odom')
 ]
-## 6.3 name和namespace
+
+## 6.4 name和namespace
 Node(
     package='robot_localization',
     executable='ekf_node',
@@ -569,14 +771,15 @@ executable      指定启动哪个可执行程序
 
 最终节点的完整名称为：/robot1/ekf_filter_node
 它的重映射输出 Topic 为：/robot1/odom
-## 6.4 二维运动学模型
+
+## 6.5 二维运动学模型
 速度：
 dx/dt = vx · cos(yaw) - vy · sin(yaw)
 dy/dt = vx · sin(yaw) + vy · cos(yaw)
 位置：
 对速度进行0-t积分
 
-## 6.5 urdf
+## 6.6 urdf
 <link name="base_link"/>
 <link name="left_wheel_link"/>
 
@@ -591,3 +794,76 @@ parent	                 父刚体是 base_link
 child	                 子刚体是 left_wheel_link
 origin	                 车轮关节相对于底盘的位置
 axis	                 关节的旋转轴方向
+
+## 6.7 setup.py
+这个文件只是在构建安装阶段执行，用于配置入口点，并非每次都需要执行，CMakeLists.txt同理
+Python的入口配置：setup.py
+C++的入口配置：CMakeLists.txt
+
+## 6.8 串口桥接节点
+Bridge 节点由 ROS 2 Launch 启动，通过已安装的 Python 入口点进入 main 函数，实例化节点并初始化参数、Publisher、Subscriber 和 Timer。节点进入 Executor 调度后，主要通过两类回调工作。第一类是 /cmd_vel 订阅回调 on_command()，负责接收、校验、限幅和缓存上层运动指令，并结合底盘通信状态进行安全判断。第二类是定时器回调 poll()，以约 5 ms 为周期维护串口通信，读取 STM32 遥测，通过 TelemetryParser 解析并发布 Odometry 和 IMU 数据。同时，它按照独立的发送周期获取 CommandGate 的安全速度输出，编码后发送给 STM32。当发生指令超时、遥测超时、电机故障或串口异常时，Bridge 会限制非零运动输出；串口断开后会尝试重连，并清理旧状态，避免恢复通信后执行过期指令。
+
+## 6.9 ros2通信方式
+### 6.9.1 Topic 通信
+### 6.9.2 Service 通信
+整个过程分为四步：
+1. Client 创建请求，并调用 Service。
+2. ROS 2 将请求传递给对应的 Server。
+3. Server 的回调函数处理请求。
+4. Server 返回响应，Client 获取结果。
+
+使用 .srv 文件定义 Service 接口：
+bool reset                     // request
+---
+bool success                   // response
+string message
+
+### 6.9.3 Action 通信
+Action是为需要一定执行时间的任务设计。Action 不是完全独立于 Topic 和 Service 的通信基础设施，而是在它们之上建立的一套任务执行协议。在 ROS 2 底层，一个 Action 通常使用三个 Service 和两个 Topic 实现：
+Send Goal Service	           提交目标
+Get Result Service	           获取最终结果
+Cancel Goal Service	           请求取消目标
+Feedback Topic	               发布执行过程中的反馈
+Status Topic	               发布目标状态
+
+使用 .action 文件定义 action 接口：
+float64 target_x               // Goal
+float64 target_y
+---
+bool success                   // Result
+---
+float64 remaining_distance     // Feedback
+
+## 6.10 常见问题
+### 6.10.1 运行功能包后，发现话题已存在，但自己的节点始终订阅不到数据。
+首先怀疑是不是两者的QoS配置有差异，即QoS兼容问题
+ros2 topic info /scan --verbose
+查看QoS配置
+
+## 6.11 colcon build 构建流程
+colcon build 后，它会经历以下步骤：
+1. 发现阶段：遍历 src/ 下的所有文件夹，寻找含有 package.xml 的目录。
+2. 分类阶段：读取每个 package.xml 里的 build_type，将它们归类为 C++ 包、Python 包或其他类型。
+3. 依赖排序：根据 package.xml 中声明的 <depend> 依赖关系，自动计算出正确的编译顺序（被依赖的包先编译）。
+4. 执行构建：依次对每个包调用对应的构建系统（读取 CMakeLists.txt 或 setup.py）完成构建。
+
+## 6.12 build_depend、exec_depend 和 depend
+<build_depend>	            构建依赖	                     编译时需要
+<exec_depend>	            执行依赖	                     运行时需要
+<depend>	                同时声明构建、导出和执行依赖	   编译、导出、运行都需要
+<buildtool_depend>      	构建过程中使用的工具	          例如：ament_cmake
+
+# 7 C++
+## 7.1 UniquePtr
+转移对象所有权：
+auto robot1 = std::make_unique<Robot>();
+auto robot2 = std::move(robot1);
+## 7.2 Mutex锁
+举例子：
+std::mutex serial_mutex_;
+std::lock_guard<std::mutex> lock(serial_mutex_);
+
+std::lock_guard<std::mutex>   作用：管理一个互斥锁的生命周期（锁卫士）
+当代码执行到这行时，lock 对象被创建，它会立即自动调用 serial_mutex_.lock()，把锁给锁上。如果此时锁被别的线程占着，当前线程就会在这里阻塞等待，直到拿到锁。
+当代码运行离开当前的作用域（比如函数执行结束，或者遇到了大括号 }），lock 对象生命周期结束并被销毁，它会自动调用 serial_mutex_.unlock() 把锁释放。
+lock_guard：无论函数是正常结束，还是中途报错抛出异常，只要离开作用域，栈上的 lock 对象被销毁时一定会自动解锁。
