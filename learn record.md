@@ -509,11 +509,28 @@ launch_arguments：子 Launch 文件通常也会用主launch中的 DeclareLaunch
 LaunchConfiguration：引用和获取DeclareLaunchArgument声明参数的值
 
 ## 4.5 服务通信 create_service
-self.create_service(
+create_service(
     Trigger,                  #服务类型，Trigger的request为空，response包含success和message
     'reset_odometry',         #服务名，字符串格式
     self.reset_callback       #回调函数
 )
+
+## 4.6 创建定时器 create_wall_timer
+create_wall_timer(
+    5ms,                         #时间
+    std::bind(                   #绑定回调函数
+        &BridgeNode::poll,
+        this
+    )
+)
+
+## 4.7 绑定函数 std::bind
+std::bind(
+    &MyNode::timer_callback,     #回调函数地址
+    this                         #绑定当前对象this指针
+)
+也可以用lambda表达式替换它
+
 
 # 5. 相关概念
 ## 5.1 QoS（Quality of Service）
@@ -668,6 +685,13 @@ ament_target_dependencies(test_node
 ## 5.6 package.xml
 作用：声明功能包级的依赖，CMakeLists.txt是配置具体编译目标，这两者需要配合
 
+## 5.7 RAII机制 Resource Acquisition Is Initialization
+可以理解成：资源的生命周期绑定到对象的生命周期。人话：把“申请资源”和“释放资源”绑定到一个局部对象的“出生（构造函数）”和“去世（析构函数）”上
+比如文件、串口、锁、动态内存，都可以由一个对象管理。
+std::unique_ptr
+std::lock_guard
+std::fstream
+本质上都体现了RAII
 
 # 6. Something
 ## 6.1 项目介绍
@@ -858,6 +882,7 @@ colcon build 后，它会经历以下步骤：
 转移对象所有权：
 auto robot1 = std::make_unique<Robot>();
 auto robot2 = std::move(robot1);
+robot2.reset()   释放指针
 ## 7.2 Mutex锁
 举例子：
 std::mutex serial_mutex_;
@@ -867,3 +892,76 @@ std::lock_guard<std::mutex>   作用：管理一个互斥锁的生命周期（�
 当代码执行到这行时，lock 对象被创建，它会立即自动调用 serial_mutex_.lock()，把锁给锁上。如果此时锁被别的线程占着，当前线程就会在这里阻塞等待，直到拿到锁。
 当代码运行离开当前的作用域（比如函数执行结束，或者遇到了大括号 }），lock 对象生命周期结束并被销毁，它会自动调用 serial_mutex_.unlock() 把锁释放。
 lock_guard：无论函数是正常结束，还是中途报错抛出异常，只要离开作用域，栈上的 lock 对象被销毁时一定会自动解锁。
+## 7.3 explicit关键字
+它的核心作用是：禁止隐式类型转换。默认情况下，如果一个类的构造函数只接受一个参数（或者多个参数但其他参数都有默认值），C++ 编译器会允许“隐式转换”。
+也就是说，你可以把一个基本数据类型直接赋值给一个对象，编译器会“好心”地悄悄帮你把这个基本类型用构造函数包装成一个临时对象。
+C++ 规范（如 Google C++ Style Guide）明确规定：所有单参数构造函数都必须是显式的（即加上 explicit）
+## 7.4 库
+#include <memory>                智能指针需要用到 share_ptr unique_ptr
+#include <functional>            std::bind需要用到
+#include <chrono>                定时器需要用到
+搭配using namespace std::chrono_literals;使用，可以在函数中直接写1s 500ms
+## 7.5 数组
+std::array<int, 3> data{1, 2, 3}               固定长度，编译时已确定
+std::vector<int> data{1, 2, 3, 4}              动态数组
+vector.push_back(5);                           填加数据
+## 7.6 lambda表达式
+本质上是一种“匿名函数”——你可以在需要传函数的地方，就地写出一段简短逻辑，而不用专门去外面定义一个具名函数或写一个繁琐的仿函数类。
+写法：
+            [捕获列表](参数列表) mutable -> 返回类型 { 函数体 }
+
+1. [捕获列表]（必填）：决定 Lambda 内部可以使用外部作用域里的哪些变量（按值拷贝还是按引用）。就算不用外部变量，也必须写一对空方括号 []。
+2. (参数列表)（可选）：和普通函数参数一样。如果没有参数，可以写 ()，甚至在不需要 mutable 或尾置返回类型时直接省略 ()。
+3. mutable（可选）：默认情况下，按值捕获的变量在 Lambda 内部是只读（const）的；加上 mutable 后，允许在函数体内修改按值捕获的局部副本（注意：改的只是副本，不影响外部原变量）。
+4. -> 返回类型（可选）：通常编译器能自动推导返回类型，绝大多数情况可省略；当返回类型复杂或需要明确指定时再写。
+5. { 函数体 }（必填）：要执行的具体代码。
+
+常见写法：
+            [捕获列表](参数列表) { 函数体 }
+
+常见捕获方式：
+[]	                          不捕获任何外部变量
+[x]	                          按值捕获变量 x（在 Lambda 创建时拷贝一份）
+[&x]	                      按引用捕获变量 x（直接读写外部的 x）
+[=]	                          按值捕获当前作用域中用到的所有外部变量
+[&]	                          按引用捕获当前作用域中用到的所有外部变量
+[this]	                      捕获当前类的 this 指针，从而在成员函数里访问成员变量和成员函数
+[=, &x] / [&, x]	          混合捕获：默认按值/按引用，但对个别变量指定相反方式
+## 7.7 std::function
+可以保存“可调用对象”。它可以把普通函数、Lambda 表达式、std::bind 绑定结果、仿函数（重载了 operator() 的类对象）甚至成员函数指针包装成同一种类型，方便存进变量、放进容器、作为参数传给别人，或者延迟到以后再调用
+模板语法：
+            std::function<返回类型(参数类型1, 参数类型2, ...)>
+可以配合 std::bind 或 Lambda 绑定对象成员函数
+## 7.8 CMakeLists.txt
+1. 
+cmake_minimum_required(VERSION 3.10)           # 指定构建该项目所需的最低 CMake 版本为 3.10（必须写在 CMakeLists.txt 的最前面）
+2. 
+project(d19_demo)                              # 定义当前项目的名称为 d19_demo（同时会生成如 PROJECT_NAME、d19_demo_SOURCE_DIR 等相关变量）
+3. 
+add_library(calculator                         # 创建一个名为 calculator 的库目标（默认生成静态库 libcalculator.a，除非显式指定 SHARED 或 MODULE）
+    calculator.cpp                             # 指定编译生成 calculator 库所需的源文件列表
+)
+4. 
+target_include_directories(calculator          # 为 calculator 目标配置头文件包含目录
+    PUBLIC                                     # PUBLIC 表示：calculator 自身编译时使用该路径，且其他链接了 calculator 的目标也会自动继承该头文件搜索路径
+        ${CMAKE_CURRENT_SOURCE_DIR}/include    # ${CMAKE_CURRENT_SOURCE_DIR} 表示当前处理的 CMakeLists.txt 所在目录，拼接 /include 指向头文件目录
+)
+5. 
+add_executable(d19_app                         # 创建一个名为 d19_app 的可执行文件目标
+    main.cpp                                   # 指定编译生成 d19_app 可执行程序所需的源文件（通常包含 main 函数入口）
+)
+6. 
+target_link_libraries(d19_app                  # 将 calculator 库链接到 d19_app 可执行目标上
+    PRIVATE                                    # PRIVATE 表示：仅 d19_app 自身链接使用 calculator，不会向依赖 d19_app 的其他目标传递此链接关系
+        calculator                             # 被链接的目标名称，对应前面通过 add_library 定义的 calculator
+)
+
+** PUBLIC **既作用于当前目标自己，也会向依赖当前目标的其他目标传递
+** PRIVATE **仅自己需要，依赖自己的其他目标不需要
+** INTERFACE **自己不需要，但是依赖当前目标的其他目标需要
+
+mkdir build
+cd build
+cmake ..               # 读取上一级目录的 CMakeLists.txt，然后在当前 build 目录生成构建系统（Makefile）
+cmake --build .        # 让 CMake 调用底层的构建工具（如 make 或 ninja），对“当前所在目录（.）”里的已配置项目执行实际编译（即执行Makefile）。
+
